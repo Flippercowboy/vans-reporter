@@ -29,6 +29,7 @@ class MainWindow:
         # Data storage
         self.projects = None
         self.summary = None
+        self.forecast = None
         self.as_of_date = date.today()
 
         # Initialise clients
@@ -253,6 +254,7 @@ class MainWindow:
             # Clear previous data when month changes
             self.projects = None
             self.summary = None
+            self.forecast = None
             self.preview_btn.config(state=tk.DISABLED)
             self.generate_btn.config(state=tk.DISABLED)
 
@@ -298,6 +300,7 @@ class MainWindow:
         # Clear previous data
         self.projects = None
         self.summary = None
+        self.forecast = None
         self.preview_btn.config(state=tk.DISABLED)
         self.generate_btn.config(state=tk.DISABLED)
 
@@ -351,6 +354,9 @@ class MainWindow:
             # Calculate hours
             self.summary = self.calculator.calculate_project_hours(self.projects, self.as_of_date)
 
+            # Calculate 3-month forecast
+            self.forecast = self.calculator.calculate_forecast(self.projects, self.as_of_date)
+
             self.status_label.config(text=f"Fetched {len(self.projects)} projects successfully")
             self.preview_btn.config(state=tk.NORMAL)
             messagebox.showinfo(
@@ -372,16 +378,18 @@ class MainWindow:
         if not self.summary:
             return
 
-        preview_window = DataPreviewWindow(self.root, self.summary, self._on_data_confirmed)
+        preview_window = DataPreviewWindow(self.root, self.summary, self.forecast, self._on_data_confirmed)
 
-    def _on_data_confirmed(self, updated_summary: ProjectSummary):
+    def _on_data_confirmed(self, updated_summary: ProjectSummary, forecast):
         """
         Callback when data is confirmed in preview window.
 
         Args:
             updated_summary: Updated ProjectSummary from preview window
+            forecast: ForecastSummary (read-only, passed through)
         """
         self.summary = updated_summary
+        self.forecast = forecast
         self.status_label.config(text="Data confirmed, ready to generate")
         self.generate_btn.config(state=tk.NORMAL)
 
@@ -408,7 +416,7 @@ class MainWindow:
             output_path = self.save_path_var.get()
 
             # Generate presentation
-            generator = VansReportGenerator(self.summary)
+            generator = VansReportGenerator(self.summary, self.forecast)
             generator.generate(output_path)
 
             self.status_label.config(text="Presentation generated successfully")

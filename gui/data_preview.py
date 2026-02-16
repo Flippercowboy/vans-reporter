@@ -4,28 +4,32 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Callable
 import copy
-from ..data.models import ProjectSummary, PersonHours
+import calendar
+from ..data.models import ProjectSummary, PersonHours, ForecastSummary
 
 
 class DataPreviewWindow:
     """Window for previewing and editing calculated hours."""
 
-    def __init__(self, parent, summary: ProjectSummary, callback: Callable):
+    def __init__(self, parent, summary: ProjectSummary, forecast: ForecastSummary,
+                 callback: Callable):
         """
         Initialise the preview window.
 
         Args:
             parent: Parent window
             summary: ProjectSummary to display
+            forecast: ForecastSummary with next 3 months
             callback: Function to call with updated summary when confirmed
         """
         self.summary = copy.deepcopy(summary)  # Work with a copy
+        self.forecast = forecast
         self.callback = callback
 
         # Create window
         self.window = tk.Toplevel(parent)
         self.window.title("Preview & Edit Hours")
-        self.window.geometry("800x600")
+        self.window.geometry("800x700")
 
         self._create_widgets()
         self._populate_data()
@@ -41,80 +45,21 @@ class DataPreviewWindow:
             text="Preview & Edit Hours",
             font=("Arial", 16, "bold")
         )
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
+        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10))
 
-        # Projects section
-        projects_label = ttk.Label(
-            main_frame,
-            text="Projects:",
-            font=("Arial", 12, "bold")
-        )
-        projects_label.grid(row=1, column=0, sticky=tk.W, pady=(0, 5))
+        # Notebook (tabbed interface)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
-        # Projects treeview
-        projects_frame = ttk.Frame(main_frame)
-        projects_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 20))
+        # Tab 1: Current Month
+        self._create_current_month_tab()
 
-        projects_scroll = ttk.Scrollbar(projects_frame, orient=tk.VERTICAL)
-        self.projects_tree = ttk.Treeview(
-            projects_frame,
-            columns=('Hours',),
-            height=5,
-            yscrollcommand=projects_scroll.set
-        )
-        projects_scroll.config(command=self.projects_tree.yview)
+        # Tab 2: 3-Month Forecast
+        self._create_forecast_tab()
 
-        self.projects_tree.heading('#0', text='Project Name')
-        self.projects_tree.heading('Hours', text='Total Hours')
-        self.projects_tree.column('#0', width=500)
-        self.projects_tree.column('Hours', width=150)
-
-        self.projects_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        projects_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
-
-        # Team members section
-        team_label = ttk.Label(
-            main_frame,
-            text="Team Members:",
-            font=("Arial", 12, "bold")
-        )
-        team_label.grid(row=3, column=0, sticky=tk.W, pady=(10, 5))
-
-        # Team treeview
-        team_frame = ttk.Frame(main_frame)
-        team_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 20))
-
-        team_scroll = ttk.Scrollbar(team_frame, orient=tk.VERTICAL)
-        self.team_tree = ttk.Treeview(
-            team_frame,
-            columns=('Total', 'Complete', 'Remaining'),
-            height=8,
-            yscrollcommand=team_scroll.set
-        )
-        team_scroll.config(command=self.team_tree.yview)
-
-        self.team_tree.heading('#0', text='Name')
-        self.team_tree.heading('Total', text='Total')
-        self.team_tree.heading('Complete', text='Complete')
-        self.team_tree.heading('Remaining', text='Remaining')
-        self.team_tree.column('#0', width=350)
-        self.team_tree.column('Total', width=100)
-        self.team_tree.column('Complete', width=100)
-        self.team_tree.column('Remaining', width=100)
-
-        self.team_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        team_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
-
-        # Summary section
-        summary_frame = ttk.LabelFrame(main_frame, text="Summary", padding="10")
-        summary_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 20))
-
-        self.summary_label = ttk.Label(summary_frame, text="", font=("Arial", 11))
-        self.summary_label.grid(row=0, column=0, sticky=tk.W)
-
-        # Buttons
+        # Buttons (below notebook, shared)
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=(10, 0))
+        button_frame.grid(row=2, column=0, columnspan=2, pady=(10, 0))
 
         edit_btn = ttk.Button(
             button_frame,
@@ -149,12 +94,196 @@ class DataPreviewWindow:
         self.window.columnconfigure(0, weight=1)
         self.window.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(2, weight=1)
-        main_frame.rowconfigure(4, weight=2)
+        main_frame.rowconfigure(1, weight=1)
+
+    def _create_current_month_tab(self):
+        """Create the Current Month tab with existing projects/team layout."""
+        tab_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(tab_frame, text="Current Month")
+
+        # Projects section
+        projects_label = ttk.Label(
+            tab_frame,
+            text="Projects:",
+            font=("Arial", 12, "bold")
+        )
+        projects_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
+
+        # Projects treeview
+        projects_frame = ttk.Frame(tab_frame)
+        projects_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+
+        projects_scroll = ttk.Scrollbar(projects_frame, orient=tk.VERTICAL)
+        self.projects_tree = ttk.Treeview(
+            projects_frame,
+            columns=('Hours',),
+            height=5,
+            yscrollcommand=projects_scroll.set
+        )
+        projects_scroll.config(command=self.projects_tree.yview)
+
+        self.projects_tree.heading('#0', text='Project Name')
+        self.projects_tree.heading('Hours', text='Total Hours')
+        self.projects_tree.column('#0', width=500)
+        self.projects_tree.column('Hours', width=150)
+
+        self.projects_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        projects_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
+
+        # Team members section
+        team_label = ttk.Label(
+            tab_frame,
+            text="Team Members:",
+            font=("Arial", 12, "bold")
+        )
+        team_label.grid(row=2, column=0, sticky=tk.W, pady=(10, 5))
+
+        # Team treeview
+        team_frame = ttk.Frame(tab_frame)
+        team_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+
+        team_scroll = ttk.Scrollbar(team_frame, orient=tk.VERTICAL)
+        self.team_tree = ttk.Treeview(
+            team_frame,
+            columns=('Total', 'Complete', 'Remaining'),
+            height=8,
+            yscrollcommand=team_scroll.set
+        )
+        team_scroll.config(command=self.team_tree.yview)
+
+        self.team_tree.heading('#0', text='Name')
+        self.team_tree.heading('Total', text='Total')
+        self.team_tree.heading('Complete', text='Complete')
+        self.team_tree.heading('Remaining', text='Remaining')
+        self.team_tree.column('#0', width=350)
+        self.team_tree.column('Total', width=100)
+        self.team_tree.column('Complete', width=100)
+        self.team_tree.column('Remaining', width=100)
+
+        self.team_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        team_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
+
+        # Summary section
+        summary_frame = ttk.LabelFrame(tab_frame, text="Summary", padding="10")
+        summary_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+
+        self.summary_label = ttk.Label(summary_frame, text="", font=("Arial", 11))
+        self.summary_label.grid(row=0, column=0, sticky=tk.W)
+
+        # Configure grid weights
+        tab_frame.columnconfigure(0, weight=1)
+        tab_frame.rowconfigure(1, weight=1)
+        tab_frame.rowconfigure(3, weight=2)
         projects_frame.columnconfigure(0, weight=1)
         projects_frame.rowconfigure(0, weight=1)
         team_frame.columnconfigure(0, weight=1)
         team_frame.rowconfigure(0, weight=1)
+
+    def _create_forecast_tab(self):
+        """Create the 3-Month Forecast tab (read-only)."""
+        tab_frame = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(tab_frame, text="3-Month Forecast")
+
+        # Info label
+        info_label = ttk.Label(
+            tab_frame,
+            text="Forecast based on current Monday.com project data (read-only)",
+            font=("Arial", 10, "italic")
+        )
+        info_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+
+        # Scrollable area for the 3 months
+        canvas = tk.Canvas(tab_frame)
+        scrollbar = ttk.Scrollbar(tab_frame, orient=tk.VERTICAL, command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        scrollbar.grid(row=1, column=1, sticky=(tk.N, tk.S))
+
+        tab_frame.columnconfigure(0, weight=1)
+        tab_frame.rowconfigure(1, weight=1)
+
+        # Populate each forecast month
+        if self.forecast and self.forecast.months:
+            for i, month_summary in enumerate(self.forecast.months):
+                self._add_forecast_month_section(scroll_frame, month_summary, i)
+        else:
+            ttk.Label(
+                scroll_frame,
+                text="No forecast data available.",
+                font=("Arial", 11)
+            ).grid(row=0, column=0, pady=20)
+
+    def _add_forecast_month_section(self, parent, month_summary, index):
+        """Add a single forecast month section to the forecast tab."""
+        month_name = calendar.month_name[month_summary.month_start.month]
+        year = month_summary.month_start.year
+
+        # Month frame
+        month_frame = ttk.LabelFrame(
+            parent,
+            text=f"{month_name} {year}",
+            padding="10"
+        )
+        month_frame.grid(row=index, column=0, sticky=(tk.W, tk.E), pady=(0, 10), padx=(0, 10))
+        parent.columnconfigure(0, weight=1)
+
+        if not month_summary.projects:
+            ttk.Label(
+                month_frame,
+                text="No projects scheduled",
+                font=("Arial", 10, "italic")
+            ).grid(row=0, column=0, pady=5)
+            return
+
+        # Projects treeview (compact, read-only)
+        tree = ttk.Treeview(
+            month_frame,
+            columns=('Hours', 'Team'),
+            height=min(len(month_summary.projects), 5)
+        )
+        tree.heading('#0', text='Project')
+        tree.heading('Hours', text='Total Hours')
+        tree.heading('Team', text='Team Members')
+        tree.column('#0', width=350)
+        tree.column('Hours', width=100)
+        tree.column('Team', width=200)
+
+        for project_name, hours in month_summary.projects.items():
+            # Find team members on this project
+            members = []
+            for person_name, person_hours in month_summary.people.items():
+                if project_name in person_hours.project_hours:
+                    members.append(person_name)
+            members_text = ", ".join(members) if members else "-"
+
+            tree.insert(
+                '', 'end',
+                text=project_name,
+                values=(f"{round(hours)}h", members_text)
+            )
+
+        tree.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        month_frame.columnconfigure(0, weight=1)
+
+        # Summary line
+        summary_text = (
+            f"Total: {round(month_summary.total_hours)}h  |  "
+            f"{len(month_summary.people)} team members  |  "
+            f"{len(month_summary.projects)} projects"
+        )
+        ttk.Label(
+            month_frame,
+            text=summary_text,
+            font=("Arial", 10, "bold")
+        ).grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
 
     def _populate_data(self):
         """Populate the treeviews with data."""
@@ -383,5 +512,5 @@ class DataPreviewWindow:
 
     def _confirm(self):
         """Confirm the data and close the window."""
-        self.callback(self.summary)
+        self.callback(self.summary, self.forecast)
         self.window.destroy()

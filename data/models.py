@@ -62,3 +62,9 @@ class ProjectSummary:
     as_of_date: date = None
     month_start: date = None
     month_end: date = None
+
+
+@dataclass
+class ForecastSummary:
+    """Holds ProjectSummary objects for the next 3 forecast months."""
+    months: List[ProjectSummary] = field(default_factory=list)

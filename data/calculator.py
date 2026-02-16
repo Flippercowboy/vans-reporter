@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 from typing import List, Dict, Tuple
 from collections import defaultdict
-from .models import Project, ProjectSummary, PersonHours
+from .models import Project, ProjectSummary, PersonHours, ForecastSummary
 from ..config import *
 
 
@@ -26,15 +26,37 @@ class TimeCalculator:
         Returns:
             ProjectSummary with all calculated data
         """
-        # Determine month boundaries
-        month_start = date(as_of_date.year, as_of_date.month, 1)
+        return self.calculate_month_hours(projects, as_of_date.year, as_of_date.month, as_of_date)
+
+    def calculate_month_hours(self, projects: List[Project], year: int, month: int,
+                              as_of_date: date = None) -> ProjectSummary:
+        """
+        Calculate hours for a specific month.
+
+        Args:
+            projects: List of Project objects
+            year: Target year
+            month: Target month (1-12)
+            as_of_date: Optional date for complete/remaining split.
+                        If None, uses the day before month start
+                        (all hours become 'remaining').
+
+        Returns:
+            ProjectSummary with all calculated data
+        """
+        month_start = date(year, month, 1)
 
         # Get last day of month
-        if as_of_date.month == 12:
-            next_month = date(as_of_date.year + 1, 1, 1)
+        if month == 12:
+            next_month = date(year + 1, 1, 1)
         else:
-            next_month = date(as_of_date.year, as_of_date.month + 1, 1)
+            next_month = date(year, month + 1, 1)
         month_end = next_month - timedelta(days=1)
+
+        # For forecast months, set as_of to day before month starts
+        # so all hours appear as "remaining"
+        if as_of_date is None:
+            as_of_date = month_start - timedelta(days=1)
 
         # Build daily schedule for all people (filtered to this month only)
         daily_schedule = self._build_daily_schedule(projects, month_start, month_end)
@@ -45,7 +67,35 @@ class TimeCalculator:
         # Aggregate by project and person
         summary = self._aggregate_hours(resolved_hours, projects, as_of_date)
 
+        # Fix metadata since as_of_date may not be in the target month
+        summary.month_start = month_start
+        summary.month_end = month_end
+
         return summary
+
+    def calculate_forecast(self, projects: List[Project], report_date: date) -> ForecastSummary:
+        """
+        Calculate hours for the 3 months following the report month.
+
+        Args:
+            projects: Full list of Project objects (already fetched)
+            report_date: The as_of_date from the current report month
+
+        Returns:
+            ForecastSummary with 3 ProjectSummary objects
+        """
+        forecast = ForecastSummary()
+
+        for i in range(1, 4):
+            m = report_date.month + i
+            y = report_date.year
+            while m > 12:
+                m -= 12
+                y += 1
+            summary = self.calculate_month_hours(projects, y, m)
+            forecast.months.append(summary)
+
+        return forecast
 
     def _get_weekdays_in_range(self, start: date, end: date) -> List[date]:
         """

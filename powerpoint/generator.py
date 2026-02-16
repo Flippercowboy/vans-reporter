@@ -6,21 +6,23 @@ from pptx.chart.data import ChartData, CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE
 from datetime import date, timedelta
 import calendar
-from ..data.models import ProjectSummary
+from ..data.models import ProjectSummary, ForecastSummary, PersonHours
 from .slides import add_title_slide, add_content_slide, add_table, add_bar_chart, add_pie_chart
 
 
 class VansReportGenerator:
     """Generates PowerPoint presentations for Vans department monthly reports."""
 
-    def __init__(self, summary: ProjectSummary):
+    def __init__(self, summary: ProjectSummary, forecast: ForecastSummary = None):
         """
         Initialise the generator.
 
         Args:
             summary: ProjectSummary object with calculated hours
+            forecast: Optional ForecastSummary with next 3 months
         """
         self.summary = summary
+        self.forecast = forecast
         self.prs = Presentation()
         self.prs.slide_width = Inches(10)
         self.prs.slide_height = Inches(7.5)
@@ -41,6 +43,11 @@ class VansReportGenerator:
         self._create_rolf_detailed_slide()
         self._create_weekly_progress_slide()
         self._create_insights_slide()
+
+        # Forecast slides
+        if self.forecast and self.forecast.months:
+            self._create_forecast_overview_slide()
+            self._create_forecast_detail_slide()
 
         self.prs.save(output_path)
 
@@ -450,3 +457,92 @@ class VansReportGenerator:
         p = tf.add_paragraph()
         p.text = "• Primarily editing work on all projects"
         p.font.size = Pt(14)
+
+    def _create_forecast_overview_slide(self):
+        """Create slide 10: 3-month forecast overview."""
+        slide = add_content_slide(self.prs, "3-Month Forecast Overview")
+
+        # Summary table: Month | Projects | Team Members | Total Hours
+        table_data = [['Month', 'Projects', 'Team Members', 'Total Hours']]
+
+        # Current month row
+        current_month_name = calendar.month_name[self.summary.month_start.month]
+        table_data.append([
+            f"{current_month_name} {self.summary.month_start.year} (Current)",
+            str(len(self.summary.projects)),
+            str(len(self.summary.people)),
+            f"{int(self.summary.total_hours)}h"
+        ])
+
+        # Forecast month rows
+        for month_summary in self.forecast.months:
+            month_name = calendar.month_name[month_summary.month_start.month]
+            table_data.append([
+                f"{month_name} {month_summary.month_start.year}",
+                str(len(month_summary.projects)),
+                str(len(month_summary.people)),
+                f"{int(month_summary.total_hours)}h"
+            ])
+
+        add_table(slide, table_data, Inches(0.5), Inches(1.5), Inches(9), Inches(2))
+
+        # Bar chart comparing months
+        chart_data = CategoryChartData()
+        month_labels = [
+            f"{calendar.month_abbr[self.summary.month_start.month]} (Current)"
+        ]
+        hours_values = [int(self.summary.total_hours)]
+
+        for ms in self.forecast.months:
+            month_labels.append(
+                f"{calendar.month_abbr[ms.month_start.month]} {ms.month_start.year}"
+            )
+            hours_values.append(int(ms.total_hours))
+
+        chart_data.categories = month_labels
+        chart_data.add_series('Total Hours', hours_values)
+
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED,
+            Inches(1), Inches(4), Inches(8), Inches(3),
+            chart_data
+        ).chart
+        chart.has_legend = False
+        chart.chart_title.text_frame.text = 'Projected Hours by Month'
+
+    def _create_forecast_detail_slide(self):
+        """Create slide 11: Forecast team workload breakdown."""
+        slide = add_content_slide(self.prs, "Forecast - Team Workload")
+
+        # Collect all unique people across forecast months
+        all_people = set()
+        for ms in self.forecast.months:
+            all_people.update(ms.people.keys())
+
+        if not all_people:
+            textbox = slide.shapes.add_textbox(Inches(0.5), Inches(2), Inches(9), Inches(2))
+            tf = textbox.text_frame
+            tf.paragraphs[0].text = "No team members scheduled in forecast months."
+            tf.paragraphs[0].font.size = Pt(14)
+            return
+
+        all_people = sorted(all_people)
+
+        # Stacked bar chart: people on Y axis, one series per forecast month
+        chart_data = ChartData()
+        chart_data.categories = all_people
+
+        for ms in self.forecast.months:
+            month_label = f"{calendar.month_abbr[ms.month_start.month]} {ms.month_start.year}"
+            values = []
+            for p in all_people:
+                person_data = ms.people.get(p)
+                values.append(int(person_data.total_hours) if person_data else 0)
+            chart_data.add_series(month_label, values)
+
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.BAR_STACKED,
+            Inches(0.5), Inches(1.5), Inches(9), Inches(5.5),
+            chart_data
+        ).chart
+        chart.chart_title.text_frame.text = 'Forecast Hours by Team Member'
